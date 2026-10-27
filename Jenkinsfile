@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -6,11 +5,15 @@ pipeline {
         timestamps()
     }
 
+    environment {
+        DEPLOY_ENV = '/home/ec2-user/projects/SkillBridge/.env'
+        COMPOSE_PROJECT_NAME = 'skillbridge'
+    }
+
     stages {
         stage('Checkout') {
             steps {
-                echo 'Source code is checked out from GitHub.'
-                checkout scm
+                echo 'SkillBridge source code is checked out from GitHub.'
             }
         }
 
@@ -18,39 +21,61 @@ pipeline {
             steps {
                 sh 'docker --version'
                 sh 'docker compose version'
+                sh 'docker ps --filter "name=skillbridge"'
+            }
+        }
+
+        stage('Verify Environment') {
+            steps {
+                sh '''
+                    test -r "$DEPLOY_ENV"
+                    echo "Environment file is accessible."
+                '''
             }
         }
 
         stage('Build Images') {
             steps {
-                sh 'docker compose build'
+                sh '''
+                    docker compose \
+                      --project-name "$COMPOSE_PROJECT_NAME" \
+                      --env-file "$DEPLOY_ENV" \
+                      build
+                '''
             }
         }
 
         stage('Deploy Application') {
             steps {
-                sh 'docker compose up -d'
+                sh '''
+                    docker compose \
+                      --project-name "$COMPOSE_PROJECT_NAME" \
+                      --env-file "$DEPLOY_ENV" \
+                      up -d
+                '''
             }
         }
 
         stage('Verify Containers') {
             steps {
-                sh 'docker compose ps'
                 sh '''
-                    docker inspect skillbridge_frontend \
-                      --format="{{.State.Status}}"
-                    docker inspect skillbridge_backend \
-                      --format="{{.State.Status}}"
-                    docker inspect skillbridge_db \
-                      --format="{{.State.Status}}"
+                    docker compose \
+                      --project-name "$COMPOSE_PROJECT_NAME" \
+                      --env-file "$DEPLOY_ENV" \
+                      ps
                 '''
             }
         }
 
         stage('Application Test') {
             steps {
-                sh 'curl --fail --retry 5 --retry-delay 3 http://localhost/api/'
-                sh 'curl --fail --retry 5 --retry-delay 3 http://localhost/api/db-test'
+                sh '''
+                    curl --fail --retry 5 --retry-delay 3 \
+                      http://localhost/api/
+
+                    curl --fail --retry 5 --retry-delay 3 \
+                      http://localhost/api/db-test
+                '''
             }
         }
     }
